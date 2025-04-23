@@ -138,16 +138,23 @@ export const GET_COLLECTION_PRODUCTS = `
     collection(slug: $slug) {
       id
       name
-      slug
+      description
       productVariants {
         items {
           id
-          sku
           name
           priceWithTax
           currencyCode
-          featuredAsset {
-            preview
+          product {
+            id
+            name
+            slug
+            description
+            featuredAsset {
+              id
+              preview
+              source
+            }
           }
         }
       }
@@ -168,28 +175,28 @@ export interface ProductVariant {
 }
 
 export interface CollectionProductsResponse {
-  data: {
-    collection: {
-      id: string;
-      name: string;
-      slug: string;
-      products: {
-        items: Array<{
+  collection: {
+    id: string;
+    name: string;
+    description: string;
+    productVariants: {
+      items: Array<{
+        id: string;
+        name: string;
+        priceWithTax: number;
+        currencyCode: string;
+        product: {
           id: string;
           name: string;
           slug: string;
           description: string;
-          featuredAsset?: {
-            preview: string;
-          };
-          variants: Array<{
+          featuredAsset: {
             id: string;
-            name: string;
-            priceWithTax: number;
-            currencyCode: string;
-          }>;
-        }>;
-      };
+            preview: string;
+            source: string;
+          };
+        };
+      }>;
     };
   };
 }

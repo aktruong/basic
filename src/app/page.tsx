@@ -1,46 +1,156 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { GET_PRODUCTS, ProductsResponse, vendureFetch } from '@/lib/vendure';
-import { ProductCard } from '@/components/ProductCard';
+import { useState, useEffect } from 'react';
+import { Collection } from '@/components/Collection';
+
+interface Product {
+  id: string;
+  name: string;
+  priceWithTax: number;
+  currencyCode: string;
+  product: {
+    id: string;
+    name: string;
+    slug: string;
+    description: string;
+    featuredAsset: {
+      id: string;
+      preview: string;
+      source: string;
+    };
+  };
+}
+
+interface CollectionData {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  featuredAsset: {
+    preview: string;
+    source: string;
+  };
+  productVariants: {
+    items: Product[];
+  };
+}
+
+const GET_COLLECTIONS = /*GraphQL*/`
+  query GetCollections {
+    collections {
+      items {
+        id
+        name
+        slug
+        description
+        featuredAsset {
+          preview
+          source
+        }
+        productVariants {
+          items {
+            id
+            name
+            priceWithTax
+            currencyCode
+            product {
+              id
+              name
+              slug
+              description
+              featuredAsset {
+                id
+                preview
+                source
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
 
 export default function HomePage() {
-  const [data, setData] = useState<ProductsResponse | null>(null);
+  const [collections, setCollections] = useState<CollectionData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchProducts = async () => {
+    const fetchCollections = async () => {
       try {
-        const response = await vendureFetch<ProductsResponse>(GET_PRODUCTS);
-        console.log('Products response:', response);
-        setData(response);
+        if (!process.env.NEXT_PUBLIC_SHOP_API_URL) {
+          throw new Error('NEXT_PUBLIC_SHOP_API_URL is not defined');
+        }
+
+        if (!process.env.NEXT_PUBLIC_VENDURE_TOKEN) {
+          throw new Error('NEXT_PUBLIC_VENDURE_TOKEN is not defined');
+        }
+
+        const response = await fetch(process.env.NEXT_PUBLIC_SHOP_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'vendure-token': process.env.NEXT_PUBLIC_VENDURE_TOKEN,
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            query: GET_COLLECTIONS,
+            variables: {},
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.errors) {
+          throw new Error(result.errors[0].message);
+        }
+
+        if (!result.data?.collections?.items) {
+          throw new Error('Invalid response format');
+        }
+
+        setCollections(result.data.collections.items);
       } catch (err) {
-        console.error('Error fetching products:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
+        console.error('Error fetching collections:', err);
+        setError(err instanceof Error ? err.message : 'Có lỗi xảy ra khi tải collections');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchProducts();
+    fetchCollections();
   }, []);
 
-  if (loading) return <div>Loading...</div>;
-  if (error) return <div>Error: {error}</div>;
-  if (!data?.data?.products?.items) return <div>No products found</div>;
-
-  return (
-    <div className="bg-white">
-      <div className="mx-auto max-w-2xl px-4 py-16 sm:px-6 sm:py-24 lg:max-w-7xl lg:px-8">
-        <h2 className="text-2xl font-bold tracking-tight text-gray-900">Sản phẩm nổi bật</h2>
-
-        <div className="mt-6 grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4 xl:gap-x-8">
-          {data.data.products.items.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
         </div>
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          <p>{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      {collections.map((collection) => (
+        <Collection key={collection.id} collection={collection} />
+      ))}
     </div>
   );
 }

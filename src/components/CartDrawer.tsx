@@ -1,152 +1,194 @@
 'use client';
 
-import { useCart } from '@/contexts/CartContext';
-import { useCartDrawer } from '@/contexts/CartDrawerContext';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useCartContext } from '@/contexts/CartContext';
 import { formatPrice } from '@/lib/utils';
-import { Minus, Plus, Trash2 } from 'lucide-react';
+import { CartLine } from '@/types';
+import { X, Minus, Plus, Trash2, ShoppingCart } from 'lucide-react';
+import { useEffect, useState, useCallback, memo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { VendureAsset } from './VendureAsset';
 
-const CartDrawer = () => {
-  const { isOpen, onClose } = useCartDrawer();
-  const { cart, updateQuantity, removeFromCart } = useCart();
+interface CartDrawerProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+const CartItem = memo(({ line }: { line: CartLine }) => {
+  const { removeFromCart, updateQuantity } = useCartContext();
+  const [localQuantity, setLocalQuantity] = useState(line.quantity);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setLocalQuantity(line.quantity);
+  }, [line.quantity]);
+
+  const handleQuantityChange = useCallback(
+    async (newQuantity: number) => {
+      if (newQuantity < 1 || isUpdating) return;
+      
+      setLocalQuantity(newQuantity);
+      
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+
+      timeoutRef.current = setTimeout(async () => {
+        try {
+          setIsUpdating(true);
+          await updateQuantity(line.id, newQuantity);
+        } finally {
+          setIsUpdating(false);
+        }
+      }, 300);
+    },
+    [line.id, updateQuantity, isUpdating]
+  );
+
+  const handleRemove = useCallback(() => {
+    removeFromCart(line.id);
+  }, [line.id, removeFromCart]);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  return (
+    <div className="flex items-start gap-4 py-3">
+      <div className="w-24 h-24 bg-gray-100 rounded-lg overflow-hidden">
+        {line.productVariant.featuredAsset?.preview ? (
+          <VendureAsset
+            preview={line.productVariant.featuredAsset.preview}
+            preset="thumb"
+            alt={line.productVariant.name}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-400">
+            Không có ảnh
+          </div>
+        )}
+      </div>
+      <div className="flex-1">
+        <h3 className="font-medium text-gray-900">{line.productVariant.name}</h3>
+        <p className="text-sm font-medium text-blue-600">
+          {formatPrice(line.productVariant.priceWithTax, line.productVariant.currencyCode)}
+        </p>
+        <div className="flex items-center gap-2 mt-2">
+          <button
+            onClick={() => handleQuantityChange(localQuantity - 1)}
+            disabled={isUpdating}
+            className="w-8 h-8 flex items-center justify-center border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Minus className="w-4 h-4" />
+          </button>
+          <span className="w-8 text-center">{localQuantity}</span>
+          <button
+            onClick={() => handleQuantityChange(localQuantity + 1)}
+            disabled={isUpdating}
+            className="w-8 h-8 flex items-center justify-center border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      <button
+        onClick={handleRemove}
+        disabled={isUpdating}
+        className="text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <Trash2 className="w-5 h-5" />
+      </button>
+    </div>
+  );
+});
+
+export function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
+  const { items, total, activeOrder } = useCartContext();
+  const drawerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-
-  if (!isOpen) return null;
 
   const handleCheckout = () => {
     onClose();
     router.push('/checkout');
   };
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (drawerRef.current && !drawerRef.current.contains(event.target as Node)) {
+        onClose();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen, onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
-      <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 flex max-w-full pl-10">
-        <div className="w-screen max-w-md">
-          <div className="flex h-full flex-col bg-white shadow-xl">
-            <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-              <div className="flex items-start justify-between">
-                <h2 className="text-lg font-medium text-gray-900">Giỏ hàng</h2>
-                <button
-                  type="button"
-                  className="text-gray-400 hover:text-gray-500"
-                  onClick={onClose}
-                >
-                  <span className="sr-only">Đóng</span>
-                  <svg
-                    className="h-6 w-6"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth="1.5"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          ref={drawerRef}
+          initial={{ x: '100%' }}
+          animate={{ x: 0 }}
+          exit={{ x: '100%' }}
+          transition={{ type: 'spring', damping: 25, stiffness: 200, mass: 0.5 }}
+          className="fixed top-0 right-0 w-full max-w-md h-screen bg-white shadow-xl z-50 flex flex-col"
+        >
+          <div className="p-6 flex-1 overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold text-gray-900">Giỏ hàng</h2>
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            {items && items.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <ShoppingCart className="w-12 h-12 text-gray-400 mb-4" />
+                <p className="text-gray-500">Giỏ hàng trống</p>
               </div>
-
-              <div className="mt-8">
-                <div className="flow-root">
-                  <ul className="-my-6 divide-y divide-gray-200">
-                    {cart.map((item) => (
-                      <li key={item.id} className="flex py-6">
-                        <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-md border border-gray-200">
-                          <img
-                            src={item.productVariant.featuredAsset?.preview}
-                            alt={item.productVariant.name}
-                            className="h-full w-full object-cover object-center"
-                          />
-                        </div>
-
-                        <div className="ml-4 flex flex-1 flex-col">
-                          <div>
-                            <div className="flex justify-between text-base font-medium text-gray-900">
-                              <h3>{item.productVariant.name}</h3>
-                              <p className="ml-4">
-                                {formatPrice(
-                                  item.productVariant.priceWithTax * item.quantity,
-                                  item.productVariant.currencyCode
-                                )}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex flex-1 items-end justify-between text-sm">
-                            <div className="flex items-center space-x-2">
-                              <button
-                                onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                className="p-1 rounded-full hover:bg-gray-100"
-                              >
-                                <Minus className="h-4 w-4" />
-                              </button>
-                              <span className="text-gray-500">{item.quantity}</span>
-                              <button
-                                onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                                className="p-1 rounded-full hover:bg-gray-100"
-                              >
-                                <Plus className="h-4 w-4" />
-                              </button>
-                            </div>
-                            <button
-                              type="button"
-                              className="font-medium text-indigo-600 hover:text-indigo-500"
-                              onClick={() => removeFromCart(item.id)}
-                            >
-                              <Trash2 className="h-5 w-5" />
-                            </button>
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+            ) : (
+              <>
+                <div className="space-y-4">
+                  {items?.map((line: CartLine) => (
+                    <CartItem key={line.id} line={line} />
+                  ))}
                 </div>
-              </div>
-            </div>
-
-            <div className="border-t border-gray-200 px-4 py-6 sm:px-6">
-              <div className="flex justify-between text-base font-medium text-gray-900">
-                <p>Tổng cộng</p>
-                <p>
-                  {formatPrice(
-                    cart.reduce(
-                      (total: number, item) =>
-                        total + item.productVariant.priceWithTax * item.quantity,
-                      0
-                    ),
-                    cart[0]?.productVariant.currencyCode || 'VND'
-                  )}
-                </p>
-              </div>
-              <div className="mt-6">
-                <button
-                  onClick={handleCheckout}
-                  className="flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-indigo-700"
-                >
-                  Thanh toán
-                </button>
-              </div>
-              <div className="mt-6 flex justify-center text-center text-sm text-gray-500">
-                <p>
-                  hoặc{' '}
-                  <button
-                    type="button"
-                    className="font-medium text-indigo-600 hover:text-indigo-500"
-                    onClick={onClose}
-                  >
-                    Tiếp tục mua sắm
-                    <span aria-hidden="true"> &rarr;</span>
-                  </button>
-                </p>
-              </div>
-            </div>
+                <div className="border-t border-gray-200 pt-4">
+                  <div className="flex justify-between text-base font-medium text-gray-900">
+                    <p>Tạm tính</p>
+                    <p>{formatPrice(total || 0, 'VND')}</p>
+                  </div>
+                  <p className="mt-0.5 text-sm text-gray-500">Phí vận chuyển sẽ được tính khi thanh toán</p>
+                </div>
+              </>
+            )}
           </div>
-        </div>
-      </div>
-    </div>
+          {items && items.length > 0 && (
+            <div className="sticky bottom-0 p-6 bg-white">
+              <button
+                onClick={handleCheckout}
+                className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Đặt hàng
+              </button>
+            </div>
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
-};
-
-export default CartDrawer; 
+} 
